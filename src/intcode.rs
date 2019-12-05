@@ -1,38 +1,117 @@
-pub type Address = usize;
-pub type Memory = Vec<usize>;
-pub type Program = Vec<usize>;
-pub type Value = usize;
+use std::convert::TryFrom;
+use std::io::{self, Read, Write};
+
+pub type Address = isize;
+pub type Memory = Vec<isize>;
+type Parameters = (ParameterMode, ParameterMode, ParameterMode);
+pub type Program = Vec<isize>;
+pub type Value = isize;
 
 pub fn read_program(text: &str) -> Result<Program, std::num::ParseIntError> {
     let mut program = Vec::new();
     for value in text.trim().split(',') {
-        program.push(value.parse::<usize>()?);
+        program.push(value.parse::<isize>()?);
     }
 
     Ok(program)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum IntCodeError {
+    Halt,
+    InvalidAddress(Address),
+    InvalidOpCode(Value),
+    InvalidParameterMode(Value),
+    ReadError,
+    WriteError,
+    WriteImmediateMode,
+}
+
+impl std::fmt::Display for IntCodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for IntCodeError {}
+
+type IntCodeResult<T> = std::result::Result<T, IntCodeError>;
+
+#[derive(Debug, Clone, Copy)]
 enum Opcode {
     Add,
     Multiply,
+    Input,
+    Output,
+    JumpIfTrue,
+    JumpIfFalse,
+    LessThan,
+    Equals,
     Halt,
 }
 
-impl From<usize> for Opcode {
-    fn from(input: usize) -> Self {
-        match input {
+impl TryFrom<Value> for Opcode {
+    type Error = IntCodeError;
+
+    fn try_from(value: Value) -> IntCodeResult<Opcode> {
+        Ok(match value {
             1 => Opcode::Add,
             2 => Opcode::Multiply,
+            3 => Opcode::Input,
+            4 => Opcode::Output,
+            5 => Opcode::JumpIfTrue,
+            6 => Opcode::JumpIfFalse,
+            7 => Opcode::LessThan,
+            8 => Opcode::Equals,
             99 => Opcode::Halt,
-            _ => unimplemented!(),
-        }
+            _ => return Err(IntCodeError::InvalidOpCode(value)),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParameterMode {
+    Position,
+    Immediate,
+}
+
+impl TryFrom<Value> for ParameterMode {
+    type Error = IntCodeError;
+
+    fn try_from(value: Value) -> IntCodeResult<Self> {
+        Ok(match value {
+            0 => ParameterMode::Position,
+            1 => ParameterMode::Immediate,
+            _ => return Err(IntCodeError::InvalidParameterMode(value)),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Instruction {
+    opcode: Opcode,
+    parameters: (ParameterMode, ParameterMode, ParameterMode),
+}
+
+impl TryFrom<Value> for Instruction {
+    type Error = IntCodeError;
+
+    fn try_from(value: Value) -> IntCodeResult<Self> {
+        Ok(Instruction {
+            opcode: Opcode::try_from(value % 100)?,
+            parameters: (
+                ParameterMode::try_from((value / 100) % 10)?,
+                ParameterMode::try_from((value / 1000) % 10)?,
+                ParameterMode::try_from(value / 10_000)?,
+            ),
+        })
     }
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct Computer {
     memory: Memory,
-    instruction_pointer: usize,
+    instruction_pointer: Address,
 }
 
 impl Computer {
@@ -53,17 +132,24 @@ impl Computer {
         &self.memory
     }
 
-    pub fn execute(&mut self) -> &mut Self {
-        while let Some(_) = {
-            match self.read_opcode() {
-                Some(Opcode::Add) => self.add().map(|value| self.set(value)),
-                Some(Opcode::Multiply) => self.multiply().map(|value| self.set(value)),
-                Some(Opcode::Halt) => None,
-                None => None,
-            }
-        } {}
+    pub fn execute(&mut self) -> IntCodeResult<&mut Self> {
+        let mut result = Ok(());
+        while let Ok(_) = result {
+            let Instruction { parameters, opcode } = self.read_instruction()?;
+            result = match opcode {
+                Opcode::Add => self.add(parameters),
+                Opcode::Multiply => self.multiply(parameters),
+                Opcode::Input => self.input(parameters),
+                Opcode::Output => self.output(parameters),
+                Opcode::JumpIfTrue => self.jump_if_true(parameters),
+                Opcode::JumpIfFalse => self.jump_if_false(parameters),
+                Opcode::LessThan => self.less_than(parameters),
+                Opcode::Equals => self.equals(parameters),
+                Opcode::Halt => Err(IntCodeError::Halt),
+            };
+        }
 
-        self
+        Ok(self)
     }
 
     pub fn reset(&mut self) -> &mut Self {
@@ -71,39 +157,111 @@ impl Computer {
         self
     }
 
-    fn read_at(&self, idx: Address) -> Option<usize> {
-        self.memory.get(idx).copied()
+    fn read_address(&self, address: Address) -> IntCodeResult<Value> {
+        if !address.is_negative() && address < self.memory.len() as isize {
+            Ok(self.memory[address as usize])
+        } else {
+            Err(IntCodeError::InvalidAddress(address))
+        }
     }
 
-    fn set_at(&mut self, idx: Address, value: Value) -> Option<()> {
-        self.memory.get_mut(idx).map(|loc| *loc = value)
+    fn write_address(&mut self, address: Address, value: Value) -> IntCodeResult<()> {
+        if !address.is_negative() && address < self.memory.len() as isize {
+            self.memory[address as usize] = value;
+            Ok(())
+        } else {
+            Err(IntCodeError::InvalidAddress(address))
+        }
     }
 
-    fn read_next(&mut self) -> Option<Value> {
-        let result = self.memory.get(self.instruction_pointer);
+    fn read_next(&mut self, mode: ParameterMode) -> IntCodeResult<Value> {
+        let mut result = self.read_address(self.instruction_pointer)?;
         self.instruction_pointer += 1;
-        result.copied()
+
+        if mode == ParameterMode::Position {
+            result = self.read_address(result)?;
+        }
+
+        Ok(result)
     }
 
-    fn read_opcode(&mut self) -> Option<Opcode> {
-        self.read_next().map(Opcode::from)
+    fn write_next(&mut self, value: Value, mode: ParameterMode) -> IntCodeResult<()> {
+        if mode == ParameterMode::Immediate {
+            Err(IntCodeError::WriteImmediateMode)
+        } else {
+            self.read_next(ParameterMode::Immediate)
+                .and_then(|address| self.write_address(address, value))
+        }
     }
 
-    fn read_value(&mut self) -> Option<Value> {
-        self.read_next().and_then(|address| self.read_at(address))
+    fn read_instruction(&mut self) -> IntCodeResult<Instruction> {
+        self.read_next(ParameterMode::Immediate)
+            .and_then(Instruction::try_from)
     }
 
-    fn set(&mut self, value: Value) -> Option<()> {
-        self.read_next()
-            .map(|address| self.set_at(address, value))?
+    fn add(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        let a = self.read_next(parameters.0)?;
+        let b = self.read_next(parameters.1)?;
+        self.write_next(a + b, parameters.2)
     }
 
-    /// Opcode operations.
-    fn add(&mut self) -> Option<Value> {
-        Some(self.read_value()? + self.read_value()?)
+    fn multiply(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        let a = self.read_next(parameters.0)?;
+        let b = self.read_next(parameters.1)?;
+        self.write_next(a * b, parameters.2)
     }
 
-    fn multiply(&mut self) -> Option<Value> {
-        Some(self.read_value()? * self.read_value()?)
+    fn input(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        let mut buffer = [0; 1];
+        let value = match io::stdin().read_exact(&mut buffer) {
+            Ok(_) => Ok((buffer[0] - b'0') as Value),
+            Err(_) => Err(IntCodeError::ReadError),
+        }?;
+
+        self.write_next(value, parameters.0)?;
+        Ok(())
+    }
+
+    fn output(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        let a = self.read_next(parameters.0)?;
+
+        io::stdout()
+            .write(format!("{}\n", a).as_bytes())
+            .or(Err(IntCodeError::WriteError))?;
+        Ok(())
+    }
+
+    fn jump_if_true(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        let a = self.read_next(parameters.0)?;
+        let b = self.read_next(parameters.1)?;
+        if a != 0 {
+            self.instruction_pointer = b;
+        }
+
+        Ok(())
+    }
+
+    fn jump_if_false(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        let a = self.read_next(parameters.0)?;
+        let b = self.read_next(parameters.1)?;
+        if a == 0 {
+            self.instruction_pointer = b;
+        }
+
+        Ok(())
+    }
+
+    fn less_than(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        let a = self.read_next(parameters.0)?;
+        let b = self.read_next(parameters.1)?;
+
+        self.write_next(if a < b { 1 } else { 0 }, parameters.2)
+    }
+
+    fn equals(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        let a = self.read_next(parameters.0)?;
+        let b = self.read_next(parameters.1)?;
+
+        self.write_next(if a == b { 1 } else { 0 }, parameters.2)
     }
 }
