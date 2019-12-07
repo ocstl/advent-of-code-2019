@@ -1,5 +1,5 @@
 use std::convert::TryFrom;
-use std::io::{self, Read, Write};
+use std::sync::mpsc;
 
 pub type Address = isize;
 pub type Memory = Vec<isize>;
@@ -108,18 +108,26 @@ impl TryFrom<Value> for Instruction {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug)]
 pub struct Computer {
     memory: Memory,
     instruction_pointer: Address,
+    receiver: mpsc::Receiver<Value>,
+    sender: mpsc::Sender<Value>,
 }
 
 impl Computer {
-    pub fn new() -> Self {
-        Computer {
-            memory: Memory::new(),
-            instruction_pointer: 0,
-        }
+    pub fn new() -> (Self, mpsc::Sender<Value>, mpsc::Receiver<Value>) {
+        let (tx, receiver) = mpsc::channel();
+        let (sender, rx) = mpsc::channel();
+        let computer =
+            Computer {
+                memory: Memory::new(),
+                instruction_pointer: 0,
+                receiver,
+                sender,
+            };
+        (computer, tx, rx)
     }
 
     pub fn load_program(&mut self, program: Program) -> &mut Self {
@@ -212,23 +220,13 @@ impl Computer {
     }
 
     fn input(&mut self, parameters: Parameters) -> IntCodeResult<()> {
-        let mut buffer = String::new();
-        let value = match io::stdin().read_line(&mut buffer) {
-            Ok(_) => buffer.trim().parse::<Value>().or(Err(IntCodeError::ReadError)),
-            Err(_) => Err(IntCodeError::ReadError),
-        }?;
-
-        self.write_next(value, parameters.0)?;
-        Ok(())
+        let value = self.receiver.recv().or(Err(IntCodeError::ReadError))?;
+        self.write_next(value, parameters.0)
     }
 
     fn output(&mut self, parameters: Parameters) -> IntCodeResult<()> {
-        let a = self.read_next(parameters.0)?;
-
-        io::stdout()
-            .write(format!("{}\n", a).as_bytes())
-            .or(Err(IntCodeError::WriteError))?;
-        Ok(())
+        let value = self.read_next(parameters.0)?;
+        self.sender.send(value).or(Err(IntCodeError::WriteError))
     }
 
     fn jump_if_true(&mut self, parameters: Parameters) -> IntCodeResult<()> {
