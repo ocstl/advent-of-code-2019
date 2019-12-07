@@ -21,12 +21,8 @@ fn part1(mut program: Program) -> Result<()> {
     program[1] = 12;
     program[2] = 2;
 
-    let part1 = *Computer::new()
-        .load_program(program)
-        .execute()?
-        .memory()
-        .first()
-        .unwrap();
+    let (mut computer, ..) = Computer::new();
+    let part1 = computer.load_program(program).execute()?.memory().first().unwrap();
 
     println!("Part 1: {}", part1);
     Ok(())
@@ -36,7 +32,7 @@ fn part1(mut program: Program) -> Result<()> {
 /// 19690720. What is 100 * noun + verb? (For example, if noun = 12 and
 /// verb = 2, the answer would be 1202.)
 fn part2(program: Program) -> Result<()> {
-    let mut computer = Computer::new();
+    let (mut computer, ..) = Computer::new();
 
     for noun in 0..100 {
         for verb in 0..100 {
