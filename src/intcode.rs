@@ -120,13 +120,12 @@ impl Computer {
     pub fn new() -> (Self, mpsc::Sender<Value>, mpsc::Receiver<Value>) {
         let (tx, receiver) = mpsc::channel();
         let (sender, rx) = mpsc::channel();
-        let computer =
-            Computer {
-                memory: Memory::new(),
-                instruction_pointer: 0,
-                receiver,
-                sender,
-            };
+        let computer = Computer {
+            memory: Memory::new(),
+            instruction_pointer: 0,
+            receiver,
+            sender,
+        };
         (computer, tx, rx)
     }
 
