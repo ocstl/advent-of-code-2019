@@ -212,9 +212,9 @@ impl Computer {
     }
 
     fn input(&mut self, parameters: Parameters) -> IntCodeResult<()> {
-        let mut buffer = [0; 1];
-        let value = match io::stdin().read_exact(&mut buffer) {
-            Ok(_) => Ok((buffer[0] - b'0') as Value),
+        let mut buffer = String::new();
+        let value = match io::stdin().read_line(&mut buffer) {
+            Ok(_) => buffer.trim().parse::<Value>().or(Err(IntCodeError::ReadError)),
             Err(_) => Err(IntCodeError::ReadError),
         }?;
 
