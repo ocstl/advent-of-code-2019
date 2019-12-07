@@ -129,6 +129,15 @@ impl Computer {
         (computer, tx, rx)
     }
 
+    pub fn with_mpsc(receiver: mpsc::Receiver<Value>, sender: mpsc::Sender<Value>) -> Self {
+        Computer {
+            memory: Memory::new(),
+            instruction_pointer: 0,
+            receiver,
+            sender,
+        }
+    }
+
     pub fn load_program(&mut self, program: Program) -> &mut Self {
         self.memory = program;
         self.reset();

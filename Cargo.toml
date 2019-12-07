@@ -5,4 +5,5 @@ authors = ["Olivier Chassé St-Laurent <oliviercsl@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+permutohedron = "0.2.4"
 radixal = "0.3.0"
