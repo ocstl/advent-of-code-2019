@@ -18,7 +18,6 @@ pub fn read_program(text: &str) -> Result<Program, std::num::ParseIntError> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum IntCodeError {
-    Halt,
     InvalidAddress(Address),
     InvalidOpCode(Value),
     InvalidParameterMode(Value),
@@ -148,7 +147,7 @@ impl Computer {
         &self.memory
     }
 
-    pub fn execute(&mut self) -> IntCodeResult<&mut Self> {
+    pub fn execute(&mut self) -> IntCodeResult<()> {
         let mut result = Ok(());
         while let Ok(_) = result {
             let Instruction { parameters, opcode } = self.read_instruction()?;
@@ -161,11 +160,11 @@ impl Computer {
                 Opcode::JumpIfFalse => self.jump_if_false(parameters),
                 Opcode::LessThan => self.less_than(parameters),
                 Opcode::Equals => self.equals(parameters),
-                Opcode::Halt => Err(IntCodeError::Halt),
+                Opcode::Halt => break,
             };
         }
 
-        Ok(self)
+        result
     }
 
     pub fn reset(&mut self) -> &mut Self {

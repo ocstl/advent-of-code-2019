@@ -22,12 +22,10 @@ fn part1(mut program: Program) -> Result<()> {
     program[2] = 2;
 
     let (mut computer, ..) = Computer::new();
-    let part1 = computer
-        .load_program(program)
-        .execute()?
-        .memory()
-        .first()
-        .unwrap();
+    computer.load_program(program);
+    computer.execute()?;
+
+    let part1 = computer.memory().first().unwrap();
 
     println!("Part 1: {}", part1);
     Ok(())
