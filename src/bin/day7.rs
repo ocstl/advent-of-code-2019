@@ -56,13 +56,15 @@ fn part2(program: Program) -> Result<()> {
             for &setting in &s {
                 let (t1, r1) = mpsc::channel();
                 let (t2, r2) = mpsc::channel();
-                t1.send(setting);
+                t1.send(setting)?;
                 senders.push(t1);
                 receivers.push(r2);
 
                 let program = program.clone();
                 thread::spawn(move || -> std::result::Result<(), IntCodeError> {
-                    Computer::with_mpsc(r1, t2).load_program(program).execute()?;
+                    Computer::with_mpsc(r1, t2)
+                        .load_program(program)
+                        .execute()?;
                     Ok(())
                 });
             }
