@@ -42,6 +42,7 @@ impl From<char> for Direction {
 impl std::ops::Add<Direction> for Point {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, d: Direction) -> Self {
         match d {
             Direction::Right => Point(self.0 + 1, self.1),
