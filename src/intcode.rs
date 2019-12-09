@@ -46,6 +46,7 @@ enum Opcode {
     JumpIfFalse,
     LessThan,
     Equals,
+    RelativeBaseOffset,
     Halt,
 }
 
@@ -62,6 +63,7 @@ impl TryFrom<Value> for Opcode {
             6 => Opcode::JumpIfFalse,
             7 => Opcode::LessThan,
             8 => Opcode::Equals,
+            9 => Opcode::RelativeBaseOffset,
             99 => Opcode::Halt,
             _ => return Err(IntCodeError::InvalidOpCode(value)),
         })
@@ -72,6 +74,7 @@ impl TryFrom<Value> for Opcode {
 enum ParameterMode {
     Position,
     Immediate,
+    Relative,
 }
 
 impl TryFrom<Value> for ParameterMode {
@@ -81,6 +84,7 @@ impl TryFrom<Value> for ParameterMode {
         Ok(match value {
             0 => ParameterMode::Position,
             1 => ParameterMode::Immediate,
+            2 => ParameterMode::Relative,
             _ => return Err(IntCodeError::InvalidParameterMode(value)),
         })
     }
@@ -113,6 +117,7 @@ pub struct Computer {
     instruction_pointer: Address,
     receiver: mpsc::Receiver<Value>,
     sender: mpsc::Sender<Value>,
+    relative_base: isize,
 }
 
 impl Computer {
@@ -124,6 +129,7 @@ impl Computer {
             instruction_pointer: 0,
             receiver,
             sender,
+            relative_base: 0,
         };
         (computer, tx, rx)
     }
@@ -134,6 +140,7 @@ impl Computer {
             instruction_pointer: 0,
             receiver,
             sender,
+            relative_base: 0,
         }
     }
 
@@ -160,6 +167,7 @@ impl Computer {
                 Opcode::JumpIfFalse => self.jump_if_false(parameters),
                 Opcode::LessThan => self.less_than(parameters),
                 Opcode::Equals => self.equals(parameters),
+                Opcode::RelativeBaseOffset => self.relative_base_offset(parameters),
                 Opcode::Halt => break,
             };
         }
@@ -172,40 +180,63 @@ impl Computer {
         self
     }
 
-    fn read_address(&self, address: Address) -> IntCodeResult<Value> {
-        if !address.is_negative() && address < self.memory.len() as isize {
-            Ok(self.memory[address as usize])
-        } else {
-            Err(IntCodeError::InvalidAddress(address))
+    fn read_address(&mut self, address: Address) -> IntCodeResult<Value> {
+        if address.is_negative() {
+            return Err(IntCodeError::InvalidAddress(address));
         }
+
+        let address = address as usize;
+        if address >= self.memory.len() {
+            self.expand_memory(address + 1);
+        }
+
+        Ok(self.memory[address as usize])
     }
 
     fn write_address(&mut self, address: Address, value: Value) -> IntCodeResult<()> {
-        if !address.is_negative() && address < self.memory.len() as isize {
-            self.memory[address as usize] = value;
-            Ok(())
-        } else {
-            Err(IntCodeError::InvalidAddress(address))
+        if address.is_negative() {
+            return Err(IntCodeError::InvalidAddress(address));
         }
+
+        let address = address as usize;
+        if address >= self.memory.len() {
+            self.expand_memory(address + 1);
+        }
+
+        self.memory[address as usize] = value;
+        Ok(())
+    }
+
+    fn expand_memory(&mut self, size: usize) {
+        self.memory.resize_with(size, Default::default)
     }
 
     fn read_next(&mut self, mode: ParameterMode) -> IntCodeResult<Value> {
-        let mut result = self.read_address(self.instruction_pointer)?;
+        let result = match mode {
+            ParameterMode::Position => {
+                let address = self.read_address(self.instruction_pointer)?;
+                self.read_address(address)
+            }
+            ParameterMode::Immediate => self.read_address(self.instruction_pointer),
+            ParameterMode::Relative => {
+                let address = self.read_address(self.instruction_pointer)?;
+                self.read_address(address + self.relative_base)
+            }
+        };
+
         self.instruction_pointer += 1;
-
-        if mode == ParameterMode::Position {
-            result = self.read_address(result)?;
-        }
-
-        Ok(result)
+        result
     }
 
     fn write_next(&mut self, value: Value, mode: ParameterMode) -> IntCodeResult<()> {
-        if mode == ParameterMode::Immediate {
-            Err(IntCodeError::WriteImmediateMode)
-        } else {
-            self.read_next(ParameterMode::Immediate)
-                .and_then(|address| self.write_address(address, value))
+        match mode {
+            ParameterMode::Position => self
+                .read_next(ParameterMode::Immediate)
+                .and_then(|address| self.write_address(address, value)),
+            ParameterMode::Immediate => Err(IntCodeError::WriteImmediateMode),
+            ParameterMode::Relative => self
+                .read_next(ParameterMode::Immediate)
+                .and_then(|address| self.write_address(address + self.relative_base, value)),
         }
     }
 
@@ -268,5 +299,10 @@ impl Computer {
         let b = self.read_next(parameters.1)?;
 
         self.write_next(if a == b { 1 } else { 0 }, parameters.2)
+    }
+
+    fn relative_base_offset(&mut self, parameters: Parameters) -> IntCodeResult<()> {
+        self.relative_base += self.read_next(parameters.0)?;
+        Ok(())
     }
 }
