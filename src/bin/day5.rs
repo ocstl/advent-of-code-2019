@@ -19,7 +19,7 @@ fn part1(program: Program) -> Result<()> {
     tx.send(1)?;
     computer.load_program(program).execute()?;
 
-    let part1 = rx.iter().filter(|&v| v != 0).next().unwrap_or(0);
+    let part1 = rx.into_iter().find(|&v| v != 0).unwrap_or(0);
     println!("Part 1: {}", part1);
     Ok(())
 }
@@ -30,7 +30,7 @@ fn part2(program: Program) -> Result<()> {
     tx.send(5)?;
     computer.load_program(program).execute()?;
 
-    let part2 = rx.iter().filter(|&v| v != 0).next().unwrap_or(0);
+    let part2 = rx.into_iter().find(|&v| v != 0).unwrap_or(0);
     println!("Part 2: {}", part2);
     Ok(())
 }
