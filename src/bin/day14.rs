@@ -134,6 +134,7 @@ fn part2(list: &ReactionList) {
     let mut min_fuel = ONE_TRILLION / ore_amount(1);
     let mut max_fuel = min_fuel;
     while ore_amount(max_fuel) < ONE_TRILLION {
+        min_fuel = max_fuel;
         max_fuel *= 2;
     }
 
