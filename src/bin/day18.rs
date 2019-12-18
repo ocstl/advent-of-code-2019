@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 const DIRECTIONS: [Direction; 4] = [
     Direction::Up,
@@ -9,7 +9,7 @@ const DIRECTIONS: [Direction; 4] = [
 ];
 const INPUT_PATH: &str = "inputs/day18.txt";
 
-type Keys = BTreeSet<char>;
+type Keys = u32;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 type State = (Reverse<u32>, Position, Keys);
 type Vault = HashMap<Position, Tile>;
@@ -19,8 +19,8 @@ enum Tile {
     Wall,
     Open,
     Entrance,
-    Door(char),
-    Key(char),
+    Door(u32),
+    Key(u32),
 }
 
 impl From<char> for Tile {
@@ -29,8 +29,8 @@ impl From<char> for Tile {
             '#' => Tile::Wall,
             '.' => Tile::Open,
             '@' => Tile::Entrance,
-            _ if c.is_ascii_uppercase() => Tile::Door(c.to_ascii_lowercase()),
-            _ if c.is_ascii_lowercase() => Tile::Key(c),
+            _ if c.is_ascii_uppercase() => Tile::Door(1 << ((c as u8 - b'A') as u32)),
+            _ if c.is_ascii_lowercase() => Tile::Key(1 << ((c as u8 - b'A') as u32)),
             _ => unimplemented!(),
         }
     }
@@ -76,30 +76,29 @@ fn part1(vault: &Vault) {
         .find_map(|(k, v)| if v == &Tile::Entrance { Some(k) } else { None })
         .unwrap();
 
-    let nbr_keys = vault
+    let all_keys = vault
         .values()
-        .filter_map(|tile| {
+        .fold(0, |acc, tile| {
             if let Tile::Key(x) = tile {
-                Some(x)
+                acc | x
             } else {
-                None
+                acc
             }
-        })
-        .count();
+        });
 
     let mut queue = BinaryHeap::new();
-    queue.push((Reverse(0), entrance, Keys::new()));
+    queue.push((Reverse(0), entrance, 0));
 
     let mut visited = HashSet::new();
 
     while let Some(state) = queue.pop() {
-        if state.2.len() == nbr_keys {
-            let Reverse(steps) = state.0;
+        let (Reverse(steps), position, keys) = state;
+        if keys == all_keys {
             println!("Part 1: {}", steps);
             break;
         }
 
-        if !visited.insert((state.1, state.2.clone())) {
+        if !visited.insert((position, keys)) {
             continue;
         }
 
@@ -140,34 +139,34 @@ fn part2(vault: &Vault) {
         vault.insert(entrance + direction, Tile::Wall);
     }
 
-    let nbr_keys = vault
+    let all_keys = vault
         .values()
-        .filter_map(|tile| {
+        .fold(0, |acc, tile| {
             if let Tile::Key(x) = tile {
-                Some(x)
+                acc | x
             } else {
-                None
+                acc
             }
-        })
-        .count();
+        });
 
     let mut queue = BinaryHeap::new();
-    queue.push((Reverse(0), entrances, Keys::new()));
+    queue.push((Reverse(0), entrances, 0));
 
     let mut visited = HashSet::new();
 
     while let Some((Reverse(steps), positions, keys)) = queue.pop() {
-        if keys.len() == nbr_keys {
+        if keys == all_keys {
             println!("Part 2: {}", steps);
             break;
         }
 
-        if !visited.insert((positions, keys.clone())) {
+        if !visited.insert((positions, keys)) {
             continue;
         }
 
+        // Explore the map using all four robots separately.
         for idx in 0..4 {
-            let state = (Reverse(steps), positions[idx], keys.clone());
+            let state = (Reverse(steps), positions[idx], keys);
             for (steps, new_position, keys) in explore_vault(&vault, state) {
                 let mut new_positions = positions;
                 new_positions[idx] = new_position;
@@ -206,21 +205,18 @@ fn explore_vault(vault: &Vault, state: State) -> Vec<State> {
         for new_position in DIRECTIONS.iter().map(|&d| position + d) {
             match vault.get(&new_position).unwrap() {
                 Tile::Wall => (),
-                Tile::Open => queue.push((Reverse(steps + 1), new_position, keys.clone())),
-                Tile::Entrance => queue.push((Reverse(steps + 1), new_position, keys.clone())),
-                Tile::Door(x) if keys.contains(x) => {
-                    queue.push((Reverse(steps + 1), new_position, keys.clone()))
+                Tile::Open => queue.push((Reverse(steps + 1), new_position, keys)),
+                Tile::Entrance => queue.push((Reverse(steps + 1), new_position, keys)),
+                Tile::Door(x) if (keys & x) != 0 => {
+                    queue.push((Reverse(steps + 1), new_position, keys))
                 }
                 Tile::Door(_) => (),
                 Tile::Key(x) => {
-                    let mut new_keys = keys.clone();
-                    new_keys.insert(*x);
-
-                    if !keys.contains(x) {
-                        new_states.push((Reverse(steps + 1), new_position, new_keys.clone()));
+                    if (keys & x) == 0 {
+                        new_states.push((Reverse(steps + 1), new_position, keys | x));
                     }
 
-                    queue.push((Reverse(steps + 1), new_position, new_keys));
+                    queue.push((Reverse(steps + 1), new_position, keys | x));
                 }
             }
         }
