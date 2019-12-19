@@ -76,15 +76,13 @@ fn part1(vault: &Vault) {
         .find_map(|(k, v)| if v == &Tile::Entrance { Some(k) } else { None })
         .unwrap();
 
-    let all_keys = vault
-        .values()
-        .fold(0, |acc, tile| {
-            if let Tile::Key(x) = tile {
-                acc | x
-            } else {
-                acc
-            }
-        });
+    let all_keys = vault.values().fold(0, |acc, tile| {
+        if let Tile::Key(x) = tile {
+            acc | x
+        } else {
+            acc
+        }
+    });
 
     let mut queue = BinaryHeap::new();
     queue.push((Reverse(0), entrance, 0));
@@ -139,15 +137,13 @@ fn part2(vault: &Vault) {
         vault.insert(entrance + direction, Tile::Wall);
     }
 
-    let all_keys = vault
-        .values()
-        .fold(0, |acc, tile| {
-            if let Tile::Key(x) = tile {
-                acc | x
-            } else {
-                acc
-            }
-        });
+    let all_keys = vault.values().fold(0, |acc, tile| {
+        if let Tile::Key(x) = tile {
+            acc | x
+        } else {
+            acc
+        }
+    });
 
     let mut queue = BinaryHeap::new();
     queue.push((Reverse(0), entrances, 0));
